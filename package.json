@@ -1,0 +1,15 @@
+{
+  "name": "textParcer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "parcer.js",
+  "scripts": {
+    "start": "node parcer.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.2"
+  }
+}
