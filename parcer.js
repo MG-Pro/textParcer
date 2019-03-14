@@ -1,96 +1,124 @@
 const fs = require('fs');
 const path = require('path');
-const cheerio = require('cheerio');
 
+const params = {
+    sourcePath: '../finer.es/',
+    targetPath: './res',
+    fileName: 'phrases',
+    needFileList: true,
+    needLocalObject: true,
+    excludeDir: [
+        '.nuxt',
+        'node_modules',
+        '.git',
+        '.idea',
+        'tmp'
+    ],
+    includeExt: [
+        '.vue',
+        '.html'
+    ]
+};
 
-const list = [];
+let totalCounter = 0;
+let list = [];
 const fileList = {};
+const filePath = path.join(__dirname, params.targetPath, params.fileName + '.json');
 
-const excludeDir = [
-    '.nuxt',
-    'node_modules',
-    '.git',
-    '.idea',
-    'tmp'
-];
+function getObj (list) {
+    const loc = {};
+    loc.en = {};
+    list.forEach(it => loc.en[it] = it);
+    return loc;
+}
 
-const includeExt = [
-    '.vue',
-    '.html'
-];
+function parcer (rootPath) {
 
-const excludeTags = [
-    'link',
-    'script',
-    'style'
+    const filesList = fs.readdirSync(rootPath);
+    for (let fileName of filesList) {
 
-];
-
-function scaner (y) {
-    let y1 = fs.readdirSync(y);
-    for (let x of y1) {
-
-        let stat = fs.statSync(y + x);
-        let filePath = y + x + '/';
+        const stat = fs.statSync(rootPath + fileName);
+        const filePath = rootPath + fileName + '/';
 
         if (!stat.isFile()) {
-            if (excludeDir.includes(x)) {
+            if (params.excludeDir.includes(fileName)) {
                 continue;
             }
-            scaner(filePath);
+            parcer(filePath);
         } else {
-            const ext = path.extname(x);
-            if (includeExt.includes(ext)) {
+
+            const ext = path.extname(fileName);
+            if (params.includeExt.includes(ext)) {
                 const data = fs.readFileSync(filePath);
                 const htmlStr = data.toString();
-                const $ = cheerio.load(htmlStr, {
-                    normalizeWhitespace: true
-                });
                 fileList[filePath] = [];
-                // console.log('\n', filePath, '\n');
 
-                const tpl = $('template');
+                const tmpFiltersReg = /{{\s*['"](?<mystring>.*)['"]\s*\|\s*translate/gm;
 
-                function domEach (html) {
-                    for (let i = 0; i < html.length; i++) {
-                        const el = html[i];
-                        if (el.type === 'text') {
-                            const text = $(el).text().replace(/\s+/g, ' ').trim();
+                let res = htmlStr.match(/\$t\(\D+?\)/gm);
+                const resFilters = htmlStr.match(tmpFiltersReg);
 
-                            if (!text.length) {
-                                continue;
+                if (res) {
+                    if (resFilters) {
+                        res = res.concat(resFilters);
+                    }
+
+                    res.forEach(item => {
+                        totalCounter++;
+                        let phrase = item.match(/"([^"\\]|\\.|\\\n)*"|'([^'\\]|\\.|\\\n)*'/);
+
+                        if (phrase) {
+                            phrase = phrase[0].slice(1);
+                            phrase = phrase.slice(0, phrase.length - 1);
+
+                            if (list.includes(phrase)) {
+                                return;
                             }
-
-                            const res = text.match(/^({{\s*\$t\().+(\)\s*}})$/i);
-
-                            if (!res) {
-                                continue;
-                            }
-
-                            const phrase = res[0].match(/[^({{\s*\$t\()'"`].+[^(\)\s*'`"}})$]/);
-
-                            if (phrase === null || list.includes(phrase[0])) {
-                                continue;
-                            }
-                            console.log(phrase[0]);
                             fileList[filePath].push(phrase);
                             list.push(phrase);
-
-                        } else if (el.children && el.children.length) {
-                            domEach(el.children);
                         }
-                    }
+                    });
                 }
-
-                domEach(tpl);
-
             }
-
         }
     }
 }
 
-scaner('../swapix-mobile/');
-fs.writeFileSync('./files.json', JSON.stringify(fileList));
-fs.writeFileSync('./phrases.json', JSON.stringify(list));
-console.log(list.length);
+function writeFile (targetPath, fileName, data) {
+    fs.mkdir(path.join(__dirname, targetPath), {recursive: true}, (err) => {
+        if (err) throw err;
+        fs.writeFileSync(path.join(__dirname, targetPath, fileName), data);
+    });
+}
+
+fs.stat(filePath, (err, stats) => {
+    if (err) {
+        console.log(err);
+    } else {
+        if (stats.isFile()) {
+            const targetFile = fs.readFileSync(filePath);
+            if (targetFile) {
+                const data = targetFile.toString();
+                try {
+                    list = list.concat(JSON.parse(data));
+
+                    fs.unlink(filePath, (err) => {
+                        if (err) console.log(err);
+                    });
+                } catch (e) {
+                    console.log(e);
+                }
+            }
+        }
+
+        parcer(params.sourcePath);
+        if (params.needFileList) {
+            writeFile(params.targetPath, 'files.json', JSON.stringify(fileList));
+        }
+        if (params.needLocalObject) {
+            writeFile(params.targetPath, `${params.fileName}LocalObject.json`, JSON.stringify(getObj(list)));
+        }
+        writeFile(params.targetPath, `${params.fileName}.json`, JSON.stringify(list));
+        console.log('Total phrases: ', totalCounter, '---- Unique phrases: ', list.length);
+    }
+});
